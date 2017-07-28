@@ -67,6 +67,7 @@ type FileSystem interface {
 
 	// Directory handling
 	OpenDir(name string, context *fuse.Context) (stream []fuse.DirEntry, code fuse.Status)
+	OpenDirIno(name string, context *fuse.Context) (stream []fuse.DirEntryIno, code fuse.Status)
 
 	// Symlinks.
 	Symlink(value string, linkName string, context *fuse.Context) (code fuse.Status)
