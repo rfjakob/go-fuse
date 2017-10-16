@@ -443,7 +443,8 @@ type StatfsOut struct {
 // _Dirent is what we send to the kernel, but we offer DirEntry and
 // DirEntryList to the user.
 type _Dirent struct {
-	Ino     uint64
+	Ino uint64
+	// Offset to the *next* dirent (in arbitrary, fs-specific units).
 	Off     uint64
 	NameLen uint32
 	Typ     uint32

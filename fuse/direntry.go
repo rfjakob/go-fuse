@@ -36,8 +36,12 @@ func (d DirEntry) String() string {
 // DirEntryList holds the return value for READDIR and READDIRPLUS
 // opcodes.
 type DirEntryList struct {
-	buf    []byte
-	size   int
+	// Buffer for output data
+	buf []byte
+	// Capacity of buf
+	size int
+	// This DirEntryList starts with entry "offset" of the underlying
+	// directory
 	offset uint64
 }
 
@@ -59,6 +63,8 @@ func (l *DirEntryList) AddDirEntry(e DirEntry) (bool, uint64) {
 
 // Add adds a direntry to the DirEntryList, returning whether it
 // succeeded.
+// If prefix > 0, a number of null bytes is added in front of the new
+// direntry.
 func (l *DirEntryList) Add(prefix int, name string, inode uint64, mode uint32) (bool, uint64) {
 	if inode == 0 {
 		inode = FUSE_UNKNOWN_INO
