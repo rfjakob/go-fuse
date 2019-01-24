@@ -184,9 +184,9 @@ type TreeWatcher interface {
 
 // RmChild removes an inode by name, and returns it. It returns nil if
 // child does not exist.
-func (n *Inode) RmChild(name string) (ch *Inode) {
+func (n *Inode) RmChild(name string, mustbeEmpty bool) (ch *Inode) {
 	n.mount.treeLock.Lock()
-	ch = n.rmChild(name)
+	ch = n.rmChild(name, mustbeEmpty)
 	n.mount.treeLock.Unlock()
 	return
 }
@@ -213,9 +213,12 @@ func (n *Inode) addChild(name string, child *Inode) {
 // rmChild throws out child "name". This means (1) deleting "name" from our
 // "children" map and (2) deleting ourself from the child's "parents" map.
 // Must be called with treeLock for the mount held.
-func (n *Inode) rmChild(name string) *Inode {
+func (n *Inode) rmChild(name string, mustbeEmpty bool) *Inode {
 	ch := n.children[name]
 	if ch != nil {
+		if mustbeEmpty && len(ch.children) > 0 {
+			log.Panicf("Deleting node with children?")
+		}
 		delete(n.children, name)
 		delete(ch.parents, parentData{n, name})
 		if w, ok := ch.Node().(TreeWatcher); ok && ch.mountPoint == nil {

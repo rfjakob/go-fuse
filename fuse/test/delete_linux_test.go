@@ -62,7 +62,7 @@ func TestDeleteNotify(t *testing.T) {
 		t.Fatal(code)
 	}
 
-	ch := root.Inode().RmChild("testdir")
+	ch := root.Inode().RmChild("testdir", true)
 	ch.Node().SetInode(nil)
 	flip := flipNode{
 		Node: ch.Node(),
@@ -105,7 +105,7 @@ func TestDeleteNotify(t *testing.T) {
 
 	// Simulate deletion+mkdir coming from the network
 	close(flip.ok)
-	oldCh := root.Inode().RmChild("testdir")
+	oldCh := root.Inode().RmChild("testdir", true)
 	_, code = root.Inode().Node().Mkdir("testdir", 0755, nil)
 	if !code.Ok() {
 		t.Fatal("mkdir status", code)

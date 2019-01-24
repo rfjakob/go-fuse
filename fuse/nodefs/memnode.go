@@ -103,7 +103,7 @@ func (n *memNode) Mkdir(name string, mode uint32, context *fuse.Context) (newNod
 }
 
 func (n *memNode) Unlink(name string, context *fuse.Context) (code fuse.Status) {
-	ch := n.Inode().RmChild(name)
+	ch := n.Inode().RmChild(name, true)
 	if ch == nil {
 		return fuse.ENOENT
 	}
@@ -123,8 +123,8 @@ func (n *memNode) Symlink(name string, content string, context *fuse.Context) (n
 }
 
 func (n *memNode) Rename(oldName string, newParent Node, newName string, context *fuse.Context) (code fuse.Status) {
-	ch := n.Inode().RmChild(oldName)
-	newParent.Inode().RmChild(newName)
+	ch := n.Inode().RmChild(oldName, false)
+	newParent.Inode().RmChild(newName, true)
 	newParent.Inode().AddChild(newName, ch)
 	return fuse.OK
 }

@@ -46,7 +46,7 @@ func (n *rootNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (*
 	if ch != nil {
 		blob = ch.Node().(*blobNode)
 		if blob.content != want {
-			n.Inode().RmChild(name)
+			n.Inode().RmChild(name, true)
 			ch = nil
 		}
 	}

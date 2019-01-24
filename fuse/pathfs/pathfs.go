@@ -324,7 +324,7 @@ func (n *pathInode) OnAdd(parent *nodefs.Inode, name string) {
 }
 
 func (n *pathInode) rmChild(name string) *pathInode {
-	childInode := n.Inode().RmChild(name)
+	childInode := n.Inode().RmChild(name, true)
 	if childInode == nil {
 		return nil
 	}
@@ -437,7 +437,7 @@ func (n *pathInode) Mkdir(name string, mode uint32, context *fuse.Context) (*nod
 func (n *pathInode) Unlink(name string, context *fuse.Context) (code fuse.Status) {
 	code = n.fs.Unlink(filepath.Join(n.GetPath(), name), context)
 	if code.Ok() {
-		n.Inode().RmChild(name)
+		n.Inode().RmChild(name, true)
 	}
 	return code
 }
@@ -445,7 +445,7 @@ func (n *pathInode) Unlink(name string, context *fuse.Context) (code fuse.Status
 func (n *pathInode) Rmdir(name string, context *fuse.Context) (code fuse.Status) {
 	code = n.fs.Rmdir(filepath.Join(n.GetPath(), name), context)
 	if code.Ok() {
-		n.Inode().RmChild(name)
+		n.Inode().RmChild(name, true)
 	}
 	return code
 }
@@ -468,8 +468,8 @@ func (n *pathInode) Rename(oldName string, newParent nodefs.Node, newName string
 	code = n.fs.Rename(oldPath, newPath, context)
 	if code.Ok() {
 		// The rename may have overwritten another file, remove it from the tree
-		p.Inode().RmChild(newName)
-		ch := n.Inode().RmChild(oldName)
+		p.Inode().RmChild(newName, true)
+		ch := n.Inode().RmChild(oldName, false)
 		if ch != nil {
 			// oldName may have been forgotten in the meantime.
 			p.Inode().AddChild(newName, ch)
@@ -546,7 +546,7 @@ func (n *pathInode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (
 	fi, code := n.fs.GetAttr(fullPath, context)
 	node := n.Inode().GetChild(name)
 	if node != nil && (!code.Ok() || node.IsDir() != fi.IsDir()) {
-		n.Inode().RmChild(name)
+		n.Inode().RmChild(name, true)
 		node = nil
 	}
 

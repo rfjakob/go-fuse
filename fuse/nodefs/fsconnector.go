@@ -154,7 +154,10 @@ func (c *FileSystemConnector) forgetUpdate(nodeID uint64, forgetCount int) {
 
 		for p := range parents {
 			// This also modifies node.parents
-			p.parent.rmChild(p.name)
+			got := p.parent.rmChild(p.name, true)
+			if got != node {
+				log.Panicf("Forgot the wrong node? %v vs %v", got, node)
+			}
 		}
 
 		node.fsInode.OnForget()
