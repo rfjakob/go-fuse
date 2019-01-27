@@ -83,7 +83,7 @@ func (m *portableHandleMap) Register(obj *handled) (handle, generation uint64) {
 		return obj.handle, obj.generation
 	}
 	// Create a new handle number or recycle one on from the free list
-	if len(m.freeIds) == 0 {
+	if true || len(m.freeIds) == 0 {
 		obj.handle = uint64(len(m.handles))
 		m.handles = append(m.handles, obj)
 	} else {
