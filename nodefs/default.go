@@ -30,14 +30,14 @@ func (dn *DefaultOperations) inode() *Inode {
 	return dn.inode_
 }
 
-func (n *DefaultOperations) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*Inode, fuse.Status) {
+func (n *DefaultOperations) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (Operations, fuse.Status) {
 	return nil, fuse.ENOSYS
 }
 
-func (n *DefaultOperations) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.EntryOut) (*Inode, fuse.Status) {
+func (n *DefaultOperations) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.EntryOut) (Operations, fuse.Status) {
 	return nil, fuse.ENOSYS
 }
-func (n *DefaultOperations) Mknod(ctx context.Context, name string, mode uint32, dev uint32, out *fuse.EntryOut) (*Inode, fuse.Status) {
+func (n *DefaultOperations) Mknod(ctx context.Context, name string, mode uint32, dev uint32, out *fuse.EntryOut) (Operations, fuse.Status) {
 	return nil, fuse.ENOSYS
 }
 func (n *DefaultOperations) Rmdir(ctx context.Context, name string) fuse.Status {
@@ -58,7 +58,7 @@ func (n *DefaultOperations) Read(ctx context.Context, f FileHandle, dest []byte,
 	return nil, fuse.ENOSYS
 }
 
-func (n *DefaultOperations) Symlink(ctx context.Context, target, name string, out *fuse.EntryOut) (node *Inode, code fuse.Status) {
+func (n *DefaultOperations) Symlink(ctx context.Context, target, name string, out *fuse.EntryOut) (ops Operations, code fuse.Status) {
 	log.Println("defsyml")
 	return nil, fuse.ENOSYS
 }
@@ -171,7 +171,7 @@ func (n *DefaultOperations) Open(ctx context.Context, flags uint32) (fh FileHand
 	return nil, 0, fuse.ENOSYS
 }
 
-func (n *DefaultOperations) Create(ctx context.Context, name string, flags uint32, mode uint32) (node *Inode, fh FileHandle, fuseFlags uint32, code fuse.Status) {
+func (n *DefaultOperations) Create(ctx context.Context, name string, flags uint32, mode uint32) (ops Operations, fh FileHandle, fuseFlags uint32, code fuse.Status) {
 	return nil, nil, 0, fuse.ENOSYS
 }
 

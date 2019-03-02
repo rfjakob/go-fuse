@@ -8,6 +8,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hanwen/go-fuse/fuse"
@@ -129,10 +130,27 @@ func (b *rawBridge) inode(id uint64, fh uint64) (*Inode, fileEntry) {
 	return n, f
 }
 
+func (b *rawBridge) idFromEntryOut(out *fuse.EntryOut) FileID {
+	ino := out.Ino
+	if ino == 0 {
+		ino = atomic.AddUint64(&b.automaticIno, 1)
+	}
+	id := FileID{
+		Gen: 1,
+		// This should work well for traditional backing FSes,
+		// not so much for other go-fuse FS-es
+		Ino: uint64(out.Rdev)<<32 ^ ino,
+	}
+	if id.Reserved() {
+		log.Panicf("reserved FileID: %#v", id)
+	}
+	return id
+}
+
 func (b *rawBridge) Lookup(header *fuse.InHeader, name string, out *fuse.EntryOut) (status fuse.Status) {
 	parent, _ := b.inode(header.NodeId, 0)
 
-	child, code := parent.node.Lookup(context.TODO(), name, out)
+	childOps, code := parent.node.Lookup(context.TODO(), name, out)
 	if !code.Ok() {
 		if b.options.NegativeTimeout != nil {
 			out.SetEntryTimeout(*b.options.NegativeTimeout)
@@ -140,10 +158,12 @@ func (b *rawBridge) Lookup(header *fuse.InHeader, name string, out *fuse.EntryOu
 		return code
 	}
 
-	b.addNewChild(parent, name, child, nil, out)
+	childNode := parent.NewInode(childOps, out.Attr.Mode, b.idFromEntryOut(out))
+
+	b.addNewChild(parent, name, childNode, nil, out)
 	b.setEntryOutTimeout(out)
 
-	out.Mode = child.mode | (out.Mode & 07777)
+	out.Mode = childNode.mode | (out.Mode & 07777)
 	return fuse.OK
 }
 
@@ -169,7 +189,7 @@ func (b *rawBridge) Unlink(header *fuse.InHeader, name string) fuse.Status {
 func (b *rawBridge) Mkdir(input *fuse.MkdirIn, name string, out *fuse.EntryOut) (code fuse.Status) {
 	parent, _ := b.inode(input.NodeId, 0)
 
-	child, code := parent.node.Mkdir(context.TODO(), name, input.Mode, out)
+	childOps, code := parent.node.Mkdir(context.TODO(), name, input.Mode, out)
 	if !code.Ok() {
 		return code
 	}
@@ -178,7 +198,9 @@ func (b *rawBridge) Mkdir(input *fuse.MkdirIn, name string, out *fuse.EntryOut) 
 		log.Panicf("Mkdir: mode must be S_IFDIR (%o), got %o", fuse.S_IFDIR, out.Attr.Mode)
 	}
 
-	b.addNewChild(parent, name, child, nil, out)
+	childNode := parent.NewInode(childOps, out.Attr.Mode, b.idFromEntryOut(out))
+
+	b.addNewChild(parent, name, childNode, nil, out)
 	b.setEntryOutTimeout(out)
 	return fuse.OK
 }
@@ -186,12 +208,14 @@ func (b *rawBridge) Mkdir(input *fuse.MkdirIn, name string, out *fuse.EntryOut) 
 func (b *rawBridge) Mknod(input *fuse.MknodIn, name string, out *fuse.EntryOut) (code fuse.Status) {
 	parent, _ := b.inode(input.NodeId, 0)
 
-	child, code := parent.node.Mknod(context.TODO(), name, input.Mode, input.Rdev, out)
+	childOps, code := parent.node.Mknod(context.TODO(), name, input.Mode, input.Rdev, out)
 	if !code.Ok() {
 		return code
 	}
 
-	b.addNewChild(parent, name, child, nil, out)
+	childNode := parent.NewInode(childOps, out.Attr.Mode, b.idFromEntryOut(out))
+
+	b.addNewChild(parent, name, childNode, nil, out)
 	b.setEntryOutTimeout(out)
 	return fuse.OK
 }
@@ -230,7 +254,7 @@ func (b *rawBridge) setEntryOutTimeout(out *fuse.EntryOut) {
 func (b *rawBridge) Create(input *fuse.CreateIn, name string, out *fuse.CreateOut) (code fuse.Status) {
 	ctx := context.TODO()
 	parent, _ := b.inode(input.NodeId, 0)
-	child, f, flags, code := parent.node.Create(ctx, name, input.Flags, input.Mode)
+	childOps, f, flags, code := parent.node.Create(ctx, name, input.Flags, input.Mode)
 	if !code.Ok() {
 		if b.options.NegativeTimeout != nil {
 			out.SetEntryTimeout(*b.options.NegativeTimeout)
@@ -238,7 +262,9 @@ func (b *rawBridge) Create(input *fuse.CreateIn, name string, out *fuse.CreateOu
 		return code
 	}
 
-	out.Fh = b.addNewChild(parent, name, child, f, &out.EntryOut)
+	childNode := parent.NewInode(childOps, out.Attr.Mode, b.idFromEntryOut(&out.EntryOut))
+
+	out.Fh = b.addNewChild(parent, name, childNode, f, &out.EntryOut)
 	b.setEntryOutTimeout(&out.EntryOut)
 
 	out.OpenFlags = flags
@@ -248,12 +274,12 @@ func (b *rawBridge) Create(input *fuse.CreateIn, name string, out *fuse.CreateOu
 	out.Attr = temp.Attr
 	out.AttrValid = temp.AttrValid
 	out.AttrValidNsec = temp.AttrValidNsec
-	out.Attr.Ino = child.nodeID.Ino
-	out.Generation = child.nodeID.Gen
-	out.NodeId = child.nodeID.Ino
+	out.Attr.Ino = childNode.nodeID.Ino
+	out.Generation = childNode.nodeID.Gen
+	out.NodeId = childNode.nodeID.Ino
 
 	b.setEntryOutTimeout(&out.EntryOut)
-	out.Mode = (out.Attr.Mode & 07777) | child.mode
+	out.Mode = (out.Attr.Mode & 0100777) | childNode.mode
 	return fuse.OK
 }
 
@@ -377,12 +403,13 @@ func (b *rawBridge) Link(input *fuse.LinkIn, filename string, out *fuse.EntryOut
 func (b *rawBridge) Symlink(header *fuse.InHeader, target string, name string, out *fuse.EntryOut) (code fuse.Status) {
 	log.Println("symlink1")
 	parent, _ := b.inode(header.NodeId, 0)
-	child, code := parent.node.Symlink(context.TODO(), target, name, out)
+	childOps, code := parent.node.Symlink(context.TODO(), target, name, out)
 	if !code.Ok() {
 		return code
 	}
 
-	b.addNewChild(parent, name, child, nil, out)
+	childNode := parent.NewInode(childOps, out.Attr.Mode, b.idFromEntryOut(out))
+	b.addNewChild(parent, name, childNode, nil, out)
 	b.setEntryOutTimeout(out)
 	return fuse.OK
 }

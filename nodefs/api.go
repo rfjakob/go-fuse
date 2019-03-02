@@ -97,15 +97,15 @@ type Operations interface {
 	//
 	// VFS makes sure to call Lookup only once for particular (node, name)
 	// pair.
-	Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*Inode, fuse.Status)
+	Lookup(ctx context.Context, name string, out *fuse.EntryOut) (Operations, fuse.Status)
 
-	Mkdir(ctx context.Context, name string, mode uint32, out *fuse.EntryOut) (*Inode, fuse.Status)
-	Mknod(ctx context.Context, name string, mode uint32, dev uint32, out *fuse.EntryOut) (*Inode, fuse.Status)
+	Mkdir(ctx context.Context, name string, mode uint32, out *fuse.EntryOut) (Operations, fuse.Status)
+	Mknod(ctx context.Context, name string, mode uint32, dev uint32, out *fuse.EntryOut) (Operations, fuse.Status)
 	Rmdir(ctx context.Context, name string) fuse.Status
 	Unlink(ctx context.Context, name string) fuse.Status
 	Rename(ctx context.Context, name string, newParent Operations, newName string, flags uint32) fuse.Status
-	Create(ctx context.Context, name string, flags uint32, mode uint32) (node *Inode, fh FileHandle, fuseFlags uint32, code fuse.Status)
-	Symlink(ctx context.Context, target, name string, out *fuse.EntryOut) (node *Inode, code fuse.Status)
+	Create(ctx context.Context, name string, flags uint32, mode uint32) (ops Operations, fh FileHandle, fuseFlags uint32, code fuse.Status)
+	Symlink(ctx context.Context, target, name string, out *fuse.EntryOut) (ops Operations, code fuse.Status)
 	Readlink(ctx context.Context) (string, fuse.Status)
 	Open(ctx context.Context, flags uint32) (fh FileHandle, fuseFlags uint32, code fuse.Status)
 

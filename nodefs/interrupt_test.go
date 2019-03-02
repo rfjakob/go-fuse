@@ -26,16 +26,18 @@ type interruptOps struct {
 	Data []byte
 }
 
-func (r *interruptRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*Inode, fuse.Status) {
+func (r *interruptRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (Operations, fuse.Status) {
 	if name != "file" {
 		return nil, fuse.ENOENT
 	}
-	ch := InodeOf(r).NewInode(&interruptOps{
+	ch := &interruptOps{
 		DefaultOperations{},
 		bytes.Repeat([]byte{42}, 1024),
-	}, fuse.S_IFREG, FileID{
-		Ino: 2,
-		Gen: 1})
+	}
+
+	out.Mode = fuse.S_IFREG
+	out.Generation = 1
+	out.Ino = 2
 
 	out.Size = 1024
 	out.Mode = fuse.S_IFREG | 0644
