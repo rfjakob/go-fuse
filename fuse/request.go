@@ -217,9 +217,9 @@ func (r *request) outData() unsafe.Pointer {
 // serializeHeader serializes the response header. The header points
 // to an internal buffer of the receiver.
 func (r *request) serializeHeader(flatDataSize int) (header []byte) {
-	dataLength := r.handler.OutputSize
-	if r.status > OK {
-		dataLength = 0
+	dataLength := uintptr(0)
+	if r.status == OK {
+		dataLength = r.handler.OutputSize
 	}
 
 	// [GET|LIST]XATTR is two opcodes in one: get/list xattr size (return
