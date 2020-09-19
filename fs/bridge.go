@@ -6,6 +6,7 @@ package fs
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -58,6 +59,10 @@ type rawBridge struct {
 	options Options
 	root    *Inode
 	server  ServerCallbacks
+
+	// debug code
+	nlookupMu  sync.Mutex
+	nlookupMap map[uint64]int
 
 	// mu protects the following data.  Locks for inodes must be
 	// taken before rawBridge.mu
@@ -124,8 +129,9 @@ func (b *rawBridge) newInodeUnlocked(ops InodeEmbedder, id StableAttr, persisten
 		b.mu.Unlock()
 
 		t = expSleep(t)
-		if i%5000 == 0 {
-			b.logf("blocked for %.0f seconds waiting for FORGET on i%d", time.Since(t0).Seconds(), id.Ino)
+		if i%500 == 0 {
+			fmt.Printf("blocked for %.0f seconds waiting for FORGET on i%d\n", time.Since(t0).Seconds(), id.Ino)
+			fmt.Printf("old.lookupCount=%d, b.nlookupMap=%d", old.lookupCount, b.nlookupAdd(id.Ino, 0))
 		}
 		b.mu.Lock()
 	}
@@ -237,6 +243,7 @@ func NewNodeFS(root InodeEmbedder, opts *Options) fuse.RawFileSystem {
 	bridge := &rawBridge{
 		automaticIno: opts.FirstAutomaticIno,
 		server:       opts.ServerCallbacks,
+		nlookupMap:   make(map[uint64]int),
 	}
 	if bridge.automaticIno == 1 {
 		bridge.automaticIno++
@@ -295,6 +302,12 @@ func (b *rawBridge) inode(id uint64, fh uint64) (*Inode, *fileEntry) {
 }
 
 func (b *rawBridge) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) fuse.Status {
+	if name == "print_node_count" {
+		b.mu.Lock()
+		cnt := len(b.nodes)
+		b.mu.Unlock()
+		fmt.Printf("print_node_count: %d\n", cnt)
+	}
 	parent, _ := b.inode(header.NodeId, 0)
 	ctx := &fuse.Context{Caller: header.Caller, Cancel: cancel}
 	child, errno := b.lookup(ctx, parent, name, out)
@@ -309,6 +322,7 @@ func (b *rawBridge) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name s
 	child.setEntryOut(out)
 	b.addNewChild(parent, name, child, nil, 0, out)
 	b.setEntryOutTimeout(out)
+	b.nlookupAdd(child.stableAttr.Ino, 1)
 	return fuse.OK
 }
 
@@ -385,6 +399,7 @@ func (b *rawBridge) Mkdir(cancel <-chan struct{}, input *fuse.MkdirIn, name stri
 	child.setEntryOut(out)
 	b.addNewChild(parent, name, child, nil, 0, out)
 	b.setEntryOutTimeout(out)
+	b.nlookupAdd(child.stableAttr.Ino, 1)
 	return fuse.OK
 }
 
@@ -404,6 +419,7 @@ func (b *rawBridge) Mknod(cancel <-chan struct{}, input *fuse.MknodIn, name stri
 	child.setEntryOut(out)
 	b.addNewChild(parent, name, child, nil, 0, out)
 	b.setEntryOutTimeout(out)
+	b.nlookupAdd(child.stableAttr.Ino, 1)
 	return fuse.OK
 }
 
@@ -434,12 +450,17 @@ func (b *rawBridge) Create(cancel <-chan struct{}, input *fuse.CreateIn, name st
 
 	child.setEntryOut(&out.EntryOut)
 	b.setEntryOutTimeout(&out.EntryOut)
+	b.nlookupAdd(child.stableAttr.Ino, 1)
 	return fuse.OK
 }
 
 func (b *rawBridge) Forget(nodeid, nlookup uint64) {
 	n, _ := b.inode(nodeid, 0)
-	n.removeRef(nlookup, false)
+	forgotten, _ := n.removeRef(nlookup, false)
+	nl := b.nlookupAdd(nodeid, -int(nlookup))
+	if forgotten && nl != 0 {
+		fmt.Printf("Forget: nodeid %5d: forgotten=%v, lookupCount=%d but nlookupMap=%d\n", nodeid, forgotten, n.lookupCount, nl)
+	}
 }
 
 func (b *rawBridge) SetDebug(debug bool) {}
@@ -543,6 +564,7 @@ func (b *rawBridge) Link(cancel <-chan struct{}, input *fuse.LinkIn, name string
 		child.setEntryOut(out)
 		b.addNewChild(parent, name, child, nil, 0, out)
 		b.setEntryOutTimeout(out)
+		b.nlookupAdd(child.stableAttr.Ino, 1)
 		return fuse.OK
 	}
 	return fuse.ENOTSUP
@@ -560,6 +582,7 @@ func (b *rawBridge) Symlink(cancel <-chan struct{}, header *fuse.InHeader, targe
 		b.addNewChild(parent, name, child, nil, 0, out)
 		child.setEntryOut(out)
 		b.setEntryOutTimeout(out)
+		b.nlookupAdd(child.stableAttr.Ino, 1)
 		return fuse.OK
 	}
 	return fuse.ENOTSUP
@@ -995,6 +1018,7 @@ func (b *rawBridge) ReadDirPlus(cancel <-chan struct{}, input *fuse.ReadIn, out 
 			}
 		} else {
 			b.addNewChild(n, e.Name, child, nil, 0, entryOut)
+			b.nlookupAdd(child.stableAttr.Ino, 1)
 			child.setEntryOut(entryOut)
 			b.setEntryOutTimeout(entryOut)
 			if e.Mode&syscall.S_IFMT != child.stableAttr.Mode&syscall.S_IFMT {
