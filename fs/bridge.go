@@ -186,6 +186,10 @@ func (b *rawBridge) addNewChild(parent *Inode, name string, child *Inode, file F
 	// Due to concurrent FORGETs, lookupCount may have dropped to zero.
 	// This means it MAY have been deleted from nodes[] already. Add it back.
 	if child.lookupCount == 0 {
+		old := b.nodes[child.stableAttr.Ino]
+		if old != nil && old != child {
+			log.Panicf("tried to overwrite nodeid %d: old=%p child=%p", child.stableAttr.Ino, old, child)
+		}
 		b.nodes[child.stableAttr.Ino] = child
 	}
 	child.lookupCount++
