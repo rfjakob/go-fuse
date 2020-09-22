@@ -105,38 +105,6 @@ func (b *rawBridge) newInodeUnlocked(ops InodeEmbedder, id StableAttr, persisten
 		id.Mode = fuse.S_IFREG
 	}
 
-	// the same node can be looked up through 2 paths in parallel, eg.
-	//
-	//	    root
-	//	    /  \
-	//	  dir1 dir2
-	//	    \  /
-	//	    file
-	//
-	// dir1.Lookup("file") and dir2.Lookup("file") are executed
-	// simultaneously.  The matching StableAttrs ensure that we return the
-	// same node.
-	var t time.Duration
-	t0 := time.Now()
-	for i := 1; true; i++ {
-		old := b.nodes[id.Ino]
-		if old == nil {
-			break
-		}
-		if old.stableAttr == id {
-			return old
-		}
-		b.mu.Unlock()
-
-		t = expSleep(t)
-		if i%500 == 0 {
-			fmt.Printf("blocked for %.0f seconds waiting for FORGET on i%d\n", time.Since(t0).Seconds(), id.Ino)
-			fmt.Printf("old.lookupCount=%d, b.nlookupMap=%d", old.lookupCount, b.nlookupAdd(id.Ino, 0))
-		}
-		b.mu.Lock()
-	}
-
-	b.nodes[id.Ino] = ops.embed()
 	initInode(ops.embed(), ops, id, b, persistent)
 	return ops.embed()
 }
@@ -179,19 +147,62 @@ func (b *rawBridge) addNewChild(parent *Inode, name string, child *Inode, file F
 	if name == "." || name == ".." {
 		log.Panicf("BUG: tried to add virtual entry %q to the actual tree", name)
 	}
-	lockNodes(parent, child)
-	parent.setEntry(name, child)
-	b.mu.Lock()
+	var origChild *Inode
+	var t time.Duration
 
-	// Due to concurrent FORGETs, lookupCount may have dropped to zero.
-	// This means it MAY have been deleted from nodes[] already. Add it back.
-	if child.lookupCount == 0 {
+	for {
+		lockNodes(parent, child)
+		b.mu.Lock()
+
+		// the same node can be looked up through 2 paths in parallel, eg.
+		//
+		//	    root
+		//	    /  \
+		//	  dir1 dir2
+		//	    \  /
+		//	    file
+		//
+		// dir1.Lookup("file") and dir2.Lookup("file") are executed
+		// simultaneously.  The matching StableAttrs ensure that we return the
+		// same node.
 		old := b.nodes[child.stableAttr.Ino]
-		if old != nil && old != child {
-			log.Panicf("tried to overwrite nodeid %d: old=%p child=%p", child.stableAttr.Ino, old, child)
+		if old == nil {
+			if origChild == nil {
+				break
+			}
+			// Another node has displaced the original child to origChild,
+			// but this other node now has disappeared.
+			// Restore original child and try again.
+			b.mu.Unlock()
+			unlockNodes(parent, child)
+			child = origChild
+			origChild = nil
+			continue
 		}
-		b.nodes[child.stableAttr.Ino] = child
+		if old == child {
+			break
+		}
+		if old != nil {
+			if old.stableAttr != child.stableAttr {
+				//fmt.Printf("!!! type mismatch: old=%x child=%x\n", old.stableAttr.Mode, child.stableAttr.Mode)
+				b.mu.Unlock()
+				unlockNodes(parent, child)
+				t = expSleep(t)
+				continue
+			}
+			// Use the existing node and try again.
+			b.mu.Unlock()
+			unlockNodes(parent, child)
+			if origChild == nil {
+				origChild = child
+			}
+			child = old
+			continue
+		}
 	}
+
+	parent.setEntry(name, child)
+	b.nodes[child.stableAttr.Ino] = child
 	child.lookupCount++
 	child.changeCounter++
 
