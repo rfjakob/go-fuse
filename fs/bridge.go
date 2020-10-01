@@ -144,7 +144,7 @@ func (b *rawBridge) newInode(ctx context.Context, ops InodeEmbedder, id StableAt
 }
 
 // addNewChild inserts the child into the tree. Returns file handle if file != nil.
-func (b *rawBridge) addNewChild(parent *Inode, name string, child *Inode, file FileHandle, fileFlags uint32, out *fuse.EntryOut) uint32 {
+func (b *rawBridge) addNewChild(parent *Inode, name string, child *Inode, file FileHandle, fileFlags uint32, out *fuse.EntryOut) (selected *Inode, fh uint32) {
 	if name == "." || name == ".." {
 		log.Panicf("BUG: tried to add virtual entry %q to the actual tree", name)
 	}
@@ -204,12 +204,8 @@ func (b *rawBridge) addNewChild(parent *Inode, name string, child *Inode, file F
 	}
 
 	b.nodeidMap[child.nodeid] = child
-	// overwrite obsolete node that may be there already
-	if old := b.inoMap[id]; old != nil && old != child {
-		//log.Printf("!!! overwriting inoMap slot %#v: i%d -> i%d", id, old.nodeid, child.nodeid)
-	}
+	// Any node that might be there is overwritten - it is obsolete now
 	b.inoMap[id] = child
-	var fh uint32
 	if file != nil {
 		fh = b.registerFile(child, file, fileFlags)
 	}
@@ -223,7 +219,7 @@ func (b *rawBridge) addNewChild(parent *Inode, name string, child *Inode, file F
 	b.mu.Unlock()
 	unlockNodes(parent, child)
 
-	return fh
+	return child, fh
 }
 
 func (b *rawBridge) setEntryOutTimeout(out *fuse.EntryOut) {
@@ -325,6 +321,11 @@ func (b *rawBridge) inode(id uint64, fh uint64) (*Inode, *fileEntry) {
 }
 
 func (b *rawBridge) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) fuse.Status {
+	// DEBUG NOSUBMIT
+	if name == "print_node_count" {
+		log.Printf("inoMap=%d nodeidMap=%d", len(b.inoMap), len(b.nodeidMap))
+	}
+
 	parent, _ := b.inode(header.NodeId, 0)
 	ctx := &fuse.Context{Caller: header.Caller, Cancel: cancel}
 	child, errno := b.lookup(ctx, parent, name, out)
@@ -336,8 +337,8 @@ func (b *rawBridge) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name s
 		return errnoToStatus(errno)
 	}
 
+	child, _ = b.addNewChild(parent, name, child, nil, 0, out)
 	child.setEntryOut(out)
-	b.addNewChild(parent, name, child, nil, 0, out)
 	b.setEntryOutTimeout(out)
 	return fuse.OK
 }
@@ -412,8 +413,8 @@ func (b *rawBridge) Mkdir(cancel <-chan struct{}, input *fuse.MkdirIn, name stri
 		log.Panicf("Mkdir: mode must be S_IFDIR (%o), got %o", fuse.S_IFDIR, out.Attr.Mode)
 	}
 
+	child, _ = b.addNewChild(parent, name, child, nil, syscall.O_EXCL, out)
 	child.setEntryOut(out)
-	b.addNewChild(parent, name, child, nil, syscall.O_EXCL, out)
 	b.setEntryOutTimeout(out)
 	return fuse.OK
 }
@@ -431,8 +432,8 @@ func (b *rawBridge) Mknod(cancel <-chan struct{}, input *fuse.MknodIn, name stri
 		return errnoToStatus(errno)
 	}
 
+	child, _ = b.addNewChild(parent, name, child, nil, syscall.O_EXCL, out)
 	child.setEntryOut(out)
-	b.addNewChild(parent, name, child, nil, syscall.O_EXCL, out)
 	b.setEntryOutTimeout(out)
 	return fuse.OK
 }
@@ -458,8 +459,9 @@ func (b *rawBridge) Create(cancel <-chan struct{}, input *fuse.CreateIn, name st
 		return errnoToStatus(errno)
 	}
 
-	out.Fh = uint64(b.addNewChild(parent, name, child, f, input.Flags|syscall.O_CREAT|syscall.O_EXCL, &out.EntryOut))
+	child, fh := b.addNewChild(parent, name, child, f, input.Flags|syscall.O_CREAT|syscall.O_EXCL, &out.EntryOut)
 
+	out.Fh = uint64(fh)
 	out.OpenFlags = flags
 
 	child.setEntryOut(&out.EntryOut)
@@ -570,8 +572,8 @@ func (b *rawBridge) Link(cancel <-chan struct{}, input *fuse.LinkIn, name string
 			return errnoToStatus(errno)
 		}
 
+		child, _ = b.addNewChild(parent, name, child, nil, 0, out)
 		child.setEntryOut(out)
-		b.addNewChild(parent, name, child, nil, 0, out)
 		b.setEntryOutTimeout(out)
 		return fuse.OK
 	}
@@ -587,7 +589,7 @@ func (b *rawBridge) Symlink(cancel <-chan struct{}, header *fuse.InHeader, targe
 			return errnoToStatus(status)
 		}
 
-		b.addNewChild(parent, name, child, nil, syscall.O_EXCL, out)
+		child, _ = b.addNewChild(parent, name, child, nil, syscall.O_EXCL, out)
 		child.setEntryOut(out)
 		b.setEntryOutTimeout(out)
 		return fuse.OK
@@ -1024,7 +1026,7 @@ func (b *rawBridge) ReadDirPlus(cancel <-chan struct{}, input *fuse.ReadIn, out 
 				entryOut.SetEntryTimeout(*b.options.NegativeTimeout)
 			}
 		} else {
-			b.addNewChild(n, e.Name, child, nil, 0, entryOut)
+			child, _ = b.addNewChild(n, e.Name, child, nil, 0, entryOut)
 			child.setEntryOut(entryOut)
 			b.setEntryOutTimeout(entryOut)
 			if e.Mode&syscall.S_IFMT != child.stableAttr.Mode&syscall.S_IFMT {

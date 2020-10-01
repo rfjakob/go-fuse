@@ -130,6 +130,10 @@ func initInode(n *Inode, ops InodeEmbedder, attr StableAttr, bridge *rawBridge, 
 
 // Set node ID and mode in EntryOut
 func (n *Inode) setEntryOut(out *fuse.EntryOut) {
+	// DEBUG NOSUBMIT
+	if n.nodeid == 0 {
+		log.Panicf("zero nodeid, n=%#v", n)
+	}
 	out.NodeId = n.nodeid
 	out.Ino = n.stableAttr.Ino
 	out.Mode = (out.Attr.Mode & 07777) | n.stableAttr.Mode
