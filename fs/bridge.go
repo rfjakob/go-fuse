@@ -1034,6 +1034,7 @@ func (b *rawBridge) ReadDirPlus(cancel <-chan struct{}, input *fuse.ReadIn, out 
 				out.FixMode(child.stableAttr.Mode)
 			}
 			entryOut.Mode = child.stableAttr.Mode | (entryOut.Mode & 07777)
+			log.Printf("-- %d: ReadDirPlus: added i%d -> %q", input.InHeader.Unique, child.nodeid, e.Name)
 		}
 	}
 
