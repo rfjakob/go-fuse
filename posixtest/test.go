@@ -9,9 +9,11 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -466,8 +468,8 @@ func ReadDir(t *testing.T, mnt string) {
 	want := map[string]bool{}
 	// 40 bytes of filename, so 110 entries overflows a
 	// 4096 page.
-	for i := 0; i < 110; i++ {
-		nm := fmt.Sprintf("file%036x", i)
+	for i := 0; i < 400; i++ {
+		nm := fmt.Sprintf("file-rddir-%08x%016x", rand.Uint64()&0xFFFFFFFFFFFFFFFF, i)
 		want[nm] = true
 		if err := ioutil.WriteFile(filepath.Join(mnt, nm), []byte("hello"), 0644); err != nil {
 			t.Fatalf("WriteFile %q: %v", nm, err)
@@ -484,10 +486,22 @@ func ReadDir(t *testing.T, mnt string) {
 		f.Close()
 		got := map[string]bool{}
 		for _, e := range names {
+			if _, ok := got[e]; ok {
+				t.Errorf("Got duplicate name: %v", e)
+			}
 			got[e] = true
 		}
 		if len(got) != len(want) {
-			t.Errorf("got %d entries, want %d", len(got), len(want))
+			t.Errorf("[%d/110] got %d entries, want %d, read %d", i+1, len(got), len(want), len(names))
+			var wantBuilder strings.Builder
+			for dir := range want {
+				if _, ok := got[dir]; !ok {
+					wantBuilder.WriteString(dir)
+					wantBuilder.WriteString(", ")
+				}
+			}
+			t.Error("Missing: ", wantBuilder.String())
+			return
 		}
 		for k := range got {
 			if !want[k] {
