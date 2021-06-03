@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -190,6 +191,8 @@ func (n *LoopbackNode) Unlink(ctx context.Context, name string) syscall.Errno {
 	return ToErrno(err)
 }
 
+var renameLock sync.Mutex
+
 func (n *LoopbackNode) Rename(ctx context.Context, name string, newParent InodeEmbedder, newName string, flags uint32) syscall.Errno {
 	if flags&RENAME_EXCHANGE != 0 {
 		return n.renameExchange(name, newParent, newName)
@@ -199,6 +202,8 @@ func (n *LoopbackNode) Rename(ctx context.Context, name string, newParent InodeE
 	p2 := filepath.Join(n.RootData.Path, newParent.EmbeddedInode().Path(nil), newName)
 
 	if os.Getenv("GOFUSE_LOOPBACK_RENAME") == "copy" {
+		renameLock.Lock()
+		defer renameLock.Unlock()
 		if err := copyFileContents(p1, p2); err != nil {
 			return ToErrno(err)
 		}
