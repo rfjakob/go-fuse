@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -19,6 +21,70 @@ import (
 	"github.com/kylelemons/godebug/pretty"
 	"golang.org/x/sys/unix"
 )
+
+func TestRenameAtomic(t *testing.T) {
+	tc := newTestCase(t, &testOptions{attrCache: true, entryCache: true})
+	defer tc.Clean()
+
+	srcPath := filepath.Join(tc.mntDir, "src")
+	dstPath := filepath.Join(tc.mntDir, "dst")
+
+	srcData := []byte("source data")
+	dstData := []byte("dest data")
+
+	// Create source and destination files
+	if err := ioutil.WriteFile(srcPath, srcData, 0600); err != nil {
+		tc.Fatalf("WriteFile: %v", err)
+	}
+	if err := ioutil.WriteFile(dstPath, dstData, 0600); err != nil {
+		tc.Fatalf("WriteFile: %v", err)
+	}
+
+	t.Run("Loops", func(t *testing.T) {
+		var running int32 = 1
+		maxRenames := 100
+
+		t.Run("Read", func(t *testing.T) {
+			t.Parallel()
+
+			defer func() {
+				// Signal the Rename goroutine to stop in case this subtest fails
+				atomic.StoreInt32(&running, 0)
+			}()
+
+			for atomic.LoadInt32(&running) == 1 {
+				data, err := ioutil.ReadFile(dstPath)
+				if err != nil {
+					t.Fatalf("ReadFile: %v", err)
+				}
+				if string(data) != string(srcData) && string(data) != string(dstData) {
+					t.Fatalf("bad data (len %d) in destination file: %q", len(data), string(data))
+				}
+			}
+		})
+
+		t.Run("Rename", func(t *testing.T) {
+			t.Parallel()
+
+			defer func() {
+				// Signal the Read goroutine to stop when loop is done
+				atomic.StoreInt32(&running, 0)
+			}()
+
+			for i := 0; i < maxRenames && atomic.LoadInt32(&running) == 1; i++ {
+				// Make sure source file is in place
+				if err := ioutil.WriteFile(srcPath, srcData, 0600); err != nil {
+					tc.Fatalf("WriteFile: %v", err)
+				}
+				// Rename src to dst
+				if err := os.Rename(srcPath, dstPath); err != nil {
+					tc.Fatalf("Rename: %v", err)
+				}
+			}
+		})
+	})
+
+}
 
 func TestRenameExchange(t *testing.T) {
 	tc := newTestCase(t, &testOptions{attrCache: true, entryCache: true})
