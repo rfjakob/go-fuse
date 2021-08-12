@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -118,6 +119,20 @@ func callFusermount(mountPoint string, opts *MountOptions) (fd int, err error) {
 	return
 }
 
+// parseFuseFd checks if `mountPoint` is the special form /dev/fd/N (with N >= 0),
+// and returns N in this case. Returns -1 otherwise.
+func parseFuseFd(mountPoint string) (fd int) {
+	dir, file := path.Split(mountPoint)
+	if dir != "/dev/fd/" {
+		return -1
+	}
+	fd, err := strconv.Atoi(file)
+	if err != nil || fd <= 0 {
+		return -1
+	}
+	return fd
+}
+
 // Create a FUSE FS on the specified mount point.  The returned
 // mount point is always absolute.
 func mount(mountPoint string, opts *MountOptions, ready chan<- error) (fd int, err error) {
@@ -128,6 +143,16 @@ func mount(mountPoint string, opts *MountOptions, ready chan<- error) (fd int, e
 		} else if opts.Debug {
 			log.Printf("mount: failed to do direct mount: %s", err)
 		}
+	}
+
+	// Magic `/dev/fd/N` mountpoint. See the docs for NewServer() for how this
+	// works.
+	fd = parseFuseFd(mountPoint)
+	if fd >= 0 {
+		syscall.CloseOnExec(fd)
+		close(ready)
+
+		return fd, nil
 	}
 
 	// Usual case: mount via the `fusermount` suid helper
